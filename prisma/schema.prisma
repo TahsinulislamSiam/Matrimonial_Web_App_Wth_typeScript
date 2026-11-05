@@ -1,0 +1,398 @@
+// CampusMatch BD — MVP data model.
+// SQLite is used for the single-founder demo so the app runs with zero external
+// services. The production schema is in docs/03-data-model.md (PostgreSQL).
+// Switching providers only requires changing `provider` + `url` and moving the
+// JSON-ish CSV columns to text[] / jsonb.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model University {
+  id           String       @id @default(cuid())
+  slug         String       @unique
+  nameEn       String
+  nameBn       String
+  city         String
+  type         String       @default("public")
+  emailDomains String       @default("") // comma separated exact domains
+  isActive     Boolean      @default(true)
+  campuses     Campus[]
+  departments  Department[]
+  users        User[]
+  createdAt    DateTime     @default(now())
+}
+
+model Campus {
+  id           String     @id @default(cuid())
+  universityId String
+  nameEn       String
+  nameBn       String
+  area         String
+  isPrimary    Boolean    @default(false)
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  users        User[]
+
+  @@index([universityId])
+}
+
+model Department {
+  id           String      @id @default(cuid())
+  universityId String?
+  nameEn       String
+  nameBn       String
+  faculty      String?
+  university   University? @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  users        User[]
+
+  @@index([universityId])
+}
+
+model User {
+  id               String    @id @default(cuid())
+  publicId         String    @unique
+  phone            String    @unique
+  phoneLast4       String
+  email            String?   @unique
+  emailVerifiedAt  DateTime?
+  status           String    @default("pending") // pending | active | limited | suspended | banned | deactivated
+  role             String    @default("user")
+  dob              DateTime
+  gender           String // woman | man
+  genderPreference String   @default("everyone") // women | men | everyone
+  locale           String    @default("bn")
+  verificationLevel Int      @default(0)
+  is18Verified     Boolean   @default(false)
+  universityId     String?
+  campusId         String?
+  departmentId     String?
+  createdAt        DateTime  @default(now())
+  lastActiveAt     DateTime  @default(now())
+  deletedAt        DateTime?
+
+  university    University? @relation(fields: [universityId], references: [id])
+  campus        Campus?     @relation(fields: [campusId], references: [id])
+  department    Department? @relation(fields: [departmentId], references: [id])
+
+  profile       Profile?
+  preference    Preference?
+  visibility    Visibility?
+  sessions      Session[]
+
+  interestsSent     Interest[] @relation("InterestSender")
+  interestsReceived Interest[] @relation("InterestReceiver")
+  shortlist         Shortlist[] @relation("ShortlistOwner")
+  shortlistedBy     Shortlist[] @relation("ShortlistTarget")
+
+  matchesA          Match[]    @relation("MatchA")
+  matchesB          Match[]    @relation("MatchB")
+  messages          Message[]
+
+  blocksMade        Block[]    @relation("Blocker")
+  blocksReceived    Block[]    @relation("Blocked")
+
+  reportsMade       Report[]   @relation("Reporter")
+  reportsAgainst    Report[]   @relation("Reported")
+  actionsAgainst    ModerationAction[]
+  verifications     VerificationRequest[]
+
+  @@index([status, lastActiveAt])
+  @@index([universityId, gender])
+  @@index([verificationLevel])
+}
+
+model Profile {
+  userId              String   @id
+  displayName         String
+  headline            String?
+  bio                 String?
+  city                String   @default("Dhaka")
+  yearOfStudy         Int?
+  graduationYear      Int?
+  relationshipIntent  String   @default("serious_relationship")
+  religion            String?
+  religionImportance  Int?
+  religionVisibility  String   @default("matches")
+  familyExpectations  String?
+  studyAbroadPlan     String?
+  relocationPlan      String?
+  motherTongue        String   @default("Bangla")
+  smoking             String?
+  drinking            String?
+  diet                String?
+  interestsCsv        String   @default("")
+  completeness        Int      @default(0)
+  photoSeed           String   @default("seed")
+  photoCount          Int      @default(3)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Preference {
+  userId          String   @id
+  ageMin          Int      @default(18)
+  ageMax          Int      @default(35)
+  intentsCsv      String   @default("")
+  religionsCsv    String   @default("")
+  universitiesCsv String   @default("")
+  citiesCsv       String   @default("")
+  gradMin         Int?
+  gradMax         Int?
+  dealbreakersCsv String   @default("")
+  maxDistanceKm   Int      @default(0)
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Visibility {
+  userId               String  @id
+  discoverable         Boolean @default(true)
+  hideFromUniversity   Boolean @default(false)
+  showOnline           Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Shortlist {
+  id        String   @id @default(cuid())
+  userId    String
+  targetId  String
+  createdAt DateTime @default(now())
+
+  user   User @relation("ShortlistOwner", fields: [userId], references: [id], onDelete: Cascade)
+  target User @relation("ShortlistTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, targetId])
+  @@index([userId, createdAt])
+}
+
+model Interest {
+  id          String    @id @default(cuid())
+  senderId    String
+  receiverId  String
+  status      String    @default("pending") // pending | accepted | declined | expired | withdrawn
+  note        String?
+  createdAt   DateTime  @default(now())
+  respondedAt DateTime?
+  expiresAt   DateTime
+
+  sender   User    @relation("InterestSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User    @relation("InterestReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  match    Match?
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId, status, createdAt])
+  @@index([senderId, status])
+}
+
+model Match {
+  id           String    @id @default(cuid())
+  userAId      String
+  userBId      String
+  interestId   String    @unique
+  status       String    @default("active") // active | unmatched | blocked
+  matchedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  endedReason  String?
+
+  userA       User         @relation("MatchA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB       User         @relation("MatchB", fields: [userBId], references: [id], onDelete: Cascade)
+  interest    Interest     @relation(fields: [interestId], references: [id])
+  conversation Conversation?
+
+  @@unique([userAId, userBId])
+  @@index([userAId, status])
+  @@index([userBId, status])
+}
+
+model Conversation {
+  id                 String    @id @default(cuid())
+  matchId            String    @unique
+  state              String    @default("active")
+  lastMessageAt      DateTime?
+  lastMessagePreview String?
+  createdAt          DateTime  @default(now())
+
+  match    Match     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  messages Message[]
+}
+
+model Message {
+  id              String    @id @default(cuid())
+  conversationId  String
+  senderId        String
+  body            String
+  seq             Int
+  clientId        String?
+  moderationState String    @default("clean")
+  createdAt       DateTime  @default(now())
+  deletedAt       DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, seq])
+  @@index([conversationId, seq])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+model Report {
+  id            String    @id @default(cuid())
+  reporterId    String
+  subjectUserId String
+  subjectType   String    @default("user") // user | message | photo
+  subjectId     String?
+  category      String
+  description   String?
+  evidence      String? // JSON snapshot
+  priority      String    @default("p2") // p0 | p1 | p2
+  status        String    @default("new") // new | triaged | actioned | dismissed | escalated
+  slaDueAt      DateTime
+  resolution    String?
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  reporter    User               @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  subject     User               @relation("Reported", fields: [subjectUserId], references: [id], onDelete: Cascade)
+  actions     ModerationAction[]
+
+  @@index([status, priority, slaDueAt])
+  @@index([subjectUserId, createdAt])
+}
+
+model ModerationAction {
+  id           String    @id @default(cuid())
+  reportId     String?
+  adminId      String?
+  action       String // warn | remove_content | suspend | ban | unban | verify | reject_verification
+  targetUserId String
+  notes        String
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime?
+
+  report Report?    @relation(fields: [reportId], references: [id], onDelete: SetNull)
+  admin  AdminUser? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  target User       @relation(fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([targetUserId, createdAt])
+}
+
+model VerificationRequest {
+  id             String    @id @default(cuid())
+  userId         String
+  method         String // email | student_id | selfie | manual
+  status         String    @default("pending_review") // pending_docs | pending_review | approved | rejected | resubmit
+  universityId   String
+  emailDomain    String?
+  note           String?
+  reviewerId     String?
+  decisionReason String?
+  submittedAt    DateTime  @default(now())
+  decidedAt      DateTime?
+  slaDueAt       DateTime
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewer AdminUser? @relation(fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([status, slaDueAt])
+  @@index([userId, submittedAt])
+}
+
+model OtpChallenge {
+  id         String    @id @default(cuid())
+  phone      String
+  codeHash   String
+  purpose    String    @default("signup")
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
+  @@index([expiresAt])
+}
+
+model Session {
+  id          String    @id @default(cuid())
+  userId      String
+  tokenHash   String    @unique
+  deviceLabel String
+  ipHash      String?
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+}
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  totpSecret   String
+  role         String    @default("moderator") // moderator | senior_moderator | admin | super_admin
+  status       String    @default("active")
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  sessions      AdminSession[]
+  verifications VerificationRequest[]
+  actions       ModerationAction[]
+}
+
+model AdminSession {
+  id        String    @id @default(cuid())
+  adminId   String
+  tokenHash String    @unique
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  admin AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, revokedAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorType  String // user | admin | system
+  actorId    String?
+  actorEmail String?
+  action     String
+  targetType String?
+  targetId   String?
+  before     String?
+  after      String?
+  ipHash     String?
+  requestId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorType, createdAt])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
